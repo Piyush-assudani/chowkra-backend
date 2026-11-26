@@ -17,7 +17,7 @@ const AVATARS = 8;
  *  - local  : pass & play, one device controls every seat
  */
 export class Room {
-  constructor({ code, mode, maxPlayers, rules, emit, onEmpty, stake = 0, store = null, onProfile = null, onCacheInvalidate = null, variant = 'classic', firstColor = null }) {
+  constructor({ code, mode, maxPlayers, rules, emit, onEmpty, stake = 0, store = null, onProfile = null, onCacheInvalidate = null, variant = 'classic', firstColor = null, seats = null }) {
     this.variant = variant;
     this.fillAt = null;
     this.stake = stake;
@@ -31,9 +31,11 @@ export class Room {
     this.ruleOverrides = rules ?? {};
     this.emit = emit; // (room, eventName, payload, toSocketId?) => void
     this.onEmpty = onEmpty;
-    this.seats = seatsFor(maxPlayers);
+    this.seats = Array.isArray(seats) && seats.length === maxPlayers ? [...seats] : seatsFor(maxPlayers);
     // 1-on-1: sit opposite each other, starting from the first player's colour.
-    if (maxPlayers === 2 && Number.isInteger(firstColor) && firstColor >= 0 && firstColor < 4) this.seats = [firstColor, (firstColor + 2) % 4];
+    if (!Array.isArray(seats) && maxPlayers === 2 && Number.isInteger(firstColor) && firstColor >= 0 && firstColor < 4) {
+      this.seats = [firstColor, (firstColor + 2) % 4];
+    }
     this.members = {}; // seat -> member
     this.hostId = null;
     this.game = null;

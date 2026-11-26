@@ -357,10 +357,11 @@ export function createServer({ dbPath, corsOrigins } = {}) {
     socket.on('room:join', guard(({ code }, ack) => enter(rooms.joinPrivate(me, code), ack), { bucket: 'room', limit: 30, windowMs: 60_000 }));
     socket.on('room:bots', guard(({ players: n, rules, variant, color }, ack) =>
       enter(rooms.vsComputer({ ...me, color: safeColor(color) }, players(n) || 4, safeRules(rules), safeVariant(variant)), ack), { bucket: 'room', limit: 30, windowMs: 60_000 }));
-    socket.on('room:local', guard(({ names, rules, variant }, ack) => {
+    socket.on('room:local', guard(({ names, rules, variant, colors }, ack) => {
       const list = Array.isArray(names) ? names.slice(0, 4).map(cleanName) : [];
       if (list.length < 2) throw new GameError('BAD_PLAYERS', 'Need 2–4 names');
-      enter(rooms.passAndPlay(me, list, safeRules(rules), safeVariant(variant)), ack);
+      const safeColors = Array.isArray(colors) ? colors.map((c) => Number(c)) : null;
+      enter(rooms.passAndPlay(me, list, safeRules(rules), safeVariant(variant), safeColors), ack);
     }, { bucket: 'room', limit: 30, windowMs: 60_000 }));
     socket.on('room:start', guard((_d, ack) => {
       const room = rooms.roomOf(me.playerId);

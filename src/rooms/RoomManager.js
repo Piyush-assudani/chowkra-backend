@@ -24,7 +24,7 @@ export class RoomManager {
     return code;
   }
 
-  create(mode, maxPlayers, rules, stake = 0, variant = 'classic', firstColor = null) {
+  create(mode, maxPlayers, rules, stake = 0, variant = 'classic', firstColor = null, seats = null) {
     if (![2, 3, 4].includes(maxPlayers)) throw new GameError('BAD_PLAYERS', 'Players must be 2, 3 or 4');
     const room = new Room({
       code: this.newCode(),
@@ -34,6 +34,7 @@ export class RoomManager {
       stake,
       variant: VARIANTS[variant] ? variant : 'classic',
       firstColor,
+      seats,
       store: this.store,
       onProfile: this.onProfile,
       onCacheInvalidate: this.onCacheInvalidate,
@@ -138,10 +139,19 @@ export class RoomManager {
     return room;
   }
 
-  passAndPlay(player, names, rules, variant = 'classic') {
-    const room = this.create('local', names.length, rules, 0, variant);
+  passAndPlay(player, names, rules, variant = 'classic', colors = null) {
+    const validColors = Array.isArray(colors) &&
+      colors.length === names.length &&
+      new Set(colors).size === names.length &&
+      colors.every((c) => Number.isInteger(c) && c >= 0 && c < 4)
+      ? colors
+      : null;
+    const room = this.create('local', names.length, rules, 0, variant, null, validColors);
     this.detach(player.playerId);
-    names.forEach((name, i) => room.addHuman({ ...player, name: name || `Player ${i + 1}`, avatar: i }));
+    names.forEach((name, i) => {
+      const c = validColors ? validColors[i] : room.seats[i];
+      room.addHuman({ ...player, name: name || `Player ${i + 1}`, avatar: c, color: c });
+    });
     this.playerRoom.set(player.playerId, room.code);
     room.start();
     return room;

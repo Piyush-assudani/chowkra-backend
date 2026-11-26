@@ -75,40 +75,46 @@ test('audio (13.28.08): extra turn only on 4, 8, or kill (not on finish)', () =>
   assert.equal(g.turn, 2, '4 grants extra turn');
 });
 
-test('video rules (20.13.14 & 14.19.34): Pakka Judwa moves only on 2/4/8, shields singles, kills only Pakka', () => {
+test('video rules (20.13.14 & 14.19.34): Pakka Judwa only in inner ring, moves on 2/4/8, shields singles, kills only Pakka', () => {
   const g = createGame([0, 2]);
   g.players[0].hasKilled = true;
   g.players[2].hasKilled = true;
-  g.players[0].pieces = [5, 5, 1, 0];
 
-  // Un-fused pair on index 5 gets both pair_soft and pair_pakka on roll 2
+  // Outer ring: pair_soft allowed, pair_pakka NOT allowed outside inner ring
+  g.players[0].pieces = [5, 5, 1, 0];
+  const outerMv = legalMoves(g, 0, 2);
+  assert.ok(outerMv.some((m) => m.kind === 'pair_soft'), 'pair_soft allowed on outer ring');
+  assert.ok(!outerMv.some((m) => m.kind === 'pair_pakka'), 'pair_pakka NOT allowed on outer ring');
+
+  // Inner ring (index 17 -> 18): both pair_soft and pair_pakka offered
+  g.players[0].pieces = [17, 17, 1, 0];
   const mv2 = legalMoves(g, 0, 2);
   const pakkaChoice = mv2.find((m) => m.kind === 'pair_pakka');
   const softChoice = mv2.find((m) => m.kind === 'pair_soft');
   assert.ok(pakkaChoice && softChoice);
-  assert.equal(pakkaChoice.to, 6, 'roll 2 moves pair 1 square');
+  assert.equal(pakkaChoice.to, 18, 'roll 2 moves pair 1 square');
 
   roll(g, 0, R(2));
   move(g, 0, { moveId: pakkaChoice.id });
-  assert.deepEqual(g.players[0].pieces.slice(0, 2), [6, 6]);
+  assert.deepEqual(g.players[0].pieces.slice(0, 2), [18, 18]);
   assert.equal(g.players[0].pakka[0], g.players[0].pakka[1]);
   assert.ok(g.players[0].pakka[0] > 0);
 
   // Pakka Double cannot move on odd roll (1 or 3), moves 2 squares on roll 4
   assert.ok(!legalMoves(g, 0, 1).some((m) => m.groupPieces.includes(0)));
   assert.ok(!legalMoves(g, 0, 3).some((m) => m.groupPieces.includes(0)));
-  assert.ok(legalMoves(g, 0, 4).some((m) => m.kind === 'pakka_move' && m.to === 8));
+  assert.ok(legalMoves(g, 0, 4).some((m) => m.kind === 'pakka_move' && m.to === 20));
 
-  // Add a 3rd friendly single onto same cell (index 6) -> single enemy CANNOT kill single OR Pakka Double!
-  g.players[0].pieces[2] = 6;
-  const enemyCell = cellFor(0, 6);
+  // Add a 3rd friendly single onto same cell (index 18) -> single enemy CANNOT kill single OR Pakka Double!
+  g.players[0].pieces[2] = 18;
+  const enemyCell = cellFor(0, 18);
   const idx2 = PATHS[2].findIndex(([r, c]) => r === enemyCell[0] && c === enemyCell[1]);
   g.players[2].pieces = [idx2 - 2, 0, 0, 0];
   g.turn = 2;
   roll(g, 2, R(2));
   move(g, 2, 0);
-  assert.equal(g.players[0].pieces[0], 6, 'Pakka Double immune to single');
-  assert.equal(g.players[0].pieces[2], 6, 'Single protected by friendly Judwa!');
+  assert.equal(g.players[0].pieces[0], 18, 'Pakka Double immune to single');
+  assert.equal(g.players[0].pieces[2], 18, 'Single protected by friendly Judwa!');
   assert.equal(g.turn, 0, 'no kill -> no extra turn');
 
   // Soft-pair un-fused DOES get killed by single enemy
@@ -126,7 +132,7 @@ test('video rules (20.13.14 & 14.19.34): Pakka Judwa moves only on 2/4/8, shield
   const g2 = createGame([0, 2]);
   g2.players[0].hasKilled = true;
   g2.players[2].hasKilled = true;
-  g2.players[0].pieces = [6, 6, 0, 0];
+  g2.players[0].pieces = [18, 18, 0, 0];
   g2.players[0].pakka = [1, 1, 0, 0];
   g2.players[2].pieces = [idx2 - 1, idx2 - 1, 0, 0];
   g2.players[2].pakka = [1, 1, 0, 0];
@@ -138,11 +144,14 @@ test('video rules (20.13.14 & 14.19.34): Pakka Judwa moves only on 2/4/8, shield
   assert.equal(g2.turn, 2, 'Pakka kill grants extra turn');
 });
 
-test('video rules (20.13.12 & 14.19.34): Winner Ghar traps at index 23, shields kills, unlocks on exact key', () => {
+test('video rules (20.13.12 & 14.19.34): Winner Ghar is at winner gate only, shields kills, unlocks on exact key', () => {
   const g = createGame([0, 1, 2]);
   g.players[0].pieces = [FINISH, FINISH, FINISH, 22];
   g.players[0].hasKilled = true;
-  g.players[1].pieces = [23, 0, 0, 0];
+  // Seat 1 has a piece at the cell matching Seat 0's gate (cellFor(0, 23) = [3,2]), NOT at Seat 1's own gate
+  const redGate = cellFor(0, 23);
+  const oppTrapIdx = PATHS[1].findIndex(([r, c]) => r === redGate[0] && c === redGate[1]);
+  g.players[1].pieces = [oppTrapIdx, 23, 0, 0];
   g.players[1].hasKilled = true;
 
   roll(g, 0, R(2));
@@ -154,8 +163,10 @@ test('video rules (20.13.12 & 14.19.34): Winner Ghar traps at index 23, shields 
   assert.ok(gharEv.some((e) => e.type === 'jailCreated' && e.key === 4 && e.index === 23));
   assert.equal(g.turn, 1);
 
-  // Piece at Ghar index 23 cannot leave on 1,2,3 -> can only leave on exact key 4
+  // Piece at Red's Ghar cell cannot leave on 1,2,3 -> can only leave on exact key 4
   assert.ok(!legalMoves(g, 1, 1).some((m) => m.piece === 0));
+  // Piece at Seat 1's own index 23 ([2,3]) is NOT trapped because Winner Ghar is only at Red's gate!
+  assert.ok(legalMoves(g, 1, 1).some((m) => m.piece === 1 && m.to === FINISH));
   const unlockMoves = legalMoves(g, 1, 4);
   assert.ok(unlockMoves.some((m) => m.piece === 0 && m.breaksJail && m.to === FINISH));
   roll(g, 1, R(4));

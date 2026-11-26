@@ -91,7 +91,18 @@ function canLeaveHome(player, rules, finish) {
   return outCount < rules.maxOutBeforeFirstFinish;
 }
 
-function resolveStep(from, steps, player, rules, spec, ghar, isOpp, unitSize = 1) {
+function trapIndexFor(seat, ghar, spec) {
+  if (!ghar || ghar.creator === seat) return -1;
+  const gharCell = cellFor(ghar.creator, ghar.index);
+  if (!gharCell) return -1;
+  const path = spec.paths[seat];
+  for (let i = 0; i < path.length - 1; i++) {
+    if (sameCell(path[i], gharCell)) return i;
+  }
+  return -1;
+}
+
+function resolveStep(from, steps, player, rules, spec, ghar, trapIdx, unitSize = 1) {
   if (from === spec.finish) return null;
   if (from === OFF_BOARD) {
     if (unitSize !== 1 || !rules.entryRolls.includes(steps)) return null;
@@ -99,8 +110,8 @@ function resolveStep(from, steps, player, rules, spec, ghar, isOpp, unitSize = 1
   }
   if (from === 0 && !canLeaveHome(player, rules, spec.finish)) return null;
 
-  // Stuck in Winner Ghar trap on gate square: exact key roll enters centre finish directly
-  if (isOpp && ghar && from === ghar.index) {
+  // Stuck in Winner Ghar trap at winner's gate cell: exact key roll enters centre finish directly
+  if (trapIdx >= 0 && from === trapIdx) {
     return null; // handled explicitly before resolveStep
   }
 
@@ -115,22 +126,18 @@ function resolveStep(from, steps, player, rules, spec, ghar, isOpp, unitSize = 1
 
   const to = from + steps;
   if (to > spec.finish) return null;
-  if (isOpp && ghar && from < ghar.index && to > ghar.index) {
-    // Cannot jump over an active Winner Ghar trap; must land at the trap gate first
+  if (trapIdx >= 0 && from < trapIdx && to > trapIdx) {
+    // Cannot jump over the active Winner Ghar trap; must land at the trap cell first
     return null;
   }
   return { to, breaksJail: false };
 }
 
-function isProtectedCell(cell, ghar, seat, state) {
+function isProtectedCell(cell, ghar) {
   if (isSafe(cell)) return true;
-  if (ghar) {
-    // Anyone trapped at a Ghar gate index is shielded from kills inside the trap
-    const gateCell = cellFor(seat, ghar.index);
-    if (sameCell(cell, gateCell)) return true;
-    for (const s of state.seats) {
-      if (s !== ghar.creator && sameCell(cell, cellFor(s, ghar.index))) return true;
-    }
+  if (ghar && sameCell(cell, cellFor(ghar.creator, ghar.index))) {
+    // Winner Ghar is only at the winner's own gate cell and shields pieces trapped there
+    return true;
   }
   return false;
 }
@@ -138,7 +145,7 @@ function isProtectedCell(cell, ghar, seat, state) {
 /** Compute enemy captures on `cell` given moving unit size (`1` single, `2` Pakka Double, `3` Pakka Triple). */
 function victimsAt(state, seat, cell, moverSize = 1) {
   const spec = boardSpec();
-  if (isProtectedCell(cell, state.jail, seat, state)) return [];
+  if (isProtectedCell(cell, state.jail)) return [];
   const out = [];
 
   for (const s of state.seats) {
@@ -187,7 +194,7 @@ export function legalMoves(state, seat, value) {
   const spec = boardSpec();
   const player = state.players[seat];
   const ghar = state.jail;
-  const isOpp = !!(ghar && ghar.creator !== seat);
+  const trapIdx = trapIndexFor(seat, ghar, spec);
   const moves = [];
   let nextId = 0;
 
@@ -212,7 +219,7 @@ export function legalMoves(state, seat, value) {
       const grp = pakkaMembers(player, gid);
       if (from === spec.finish || grp.length < 2) return;
 
-      if (isOpp && ghar && from === ghar.index) {
+      if (trapIdx >= 0 && from === trapIdx) {
         if (value === ghar.key) {
           pushMove({
             piece: grp[0],
@@ -229,7 +236,7 @@ export function legalMoves(state, seat, value) {
 
       if (value % grp.length !== 0) return;
       const steps = value / grp.length;
-      const res = resolveStep(from, steps, player, rules, spec, ghar, isOpp, grp.length);
+      const res = resolveStep(from, steps, player, rules, spec, ghar, trapIdx, grp.length);
       if (!res) return;
       pushMove({
         piece: grp[0],
@@ -248,7 +255,7 @@ export function legalMoves(state, seat, value) {
     singleByPos.get(from).push(piece);
 
     // Ghar unlock for trapped single piece
-    if (isOpp && ghar && from === ghar.index) {
+    if (trapIdx >= 0 && from === trapIdx) {
       if (value === ghar.key) {
         pushMove({
           piece,
@@ -263,7 +270,7 @@ export function legalMoves(state, seat, value) {
       return;
     }
 
-    const res = resolveStep(from, value, player, rules, spec, ghar, isOpp, 1);
+    const res = resolveStep(from, value, player, rules, spec, ghar, trapIdx, 1);
     if (!res) return;
     pushMove({
       piece,
@@ -280,11 +287,11 @@ export function legalMoves(state, seat, value) {
   if (rules.pakkaEnabled) {
     for (const [from, pcs] of singleByPos) {
       if (from <= 0 || from >= spec.finish) continue;
-      if (isOpp && ghar && from === ghar.index) continue;
+      if (trapIdx >= 0 && from === trapIdx) continue;
 
       if (pcs.length >= 2 && value % 2 === 0) {
         const pair = [pcs[0], pcs[1]];
-        const res = resolveStep(from, value / 2, player, rules, spec, ghar, isOpp, 2);
+        const res = resolveStep(from, value / 2, player, rules, spec, ghar, trapIdx, 2);
         if (res && res.to < spec.finish) {
           pushMove({
             piece: pair[0],
@@ -295,23 +302,26 @@ export function legalMoves(state, seat, value) {
             breaksJail: res.breaksJail,
             createsPakka: false,
           });
-          pushMove({
-            piece: pair[0],
-            groupPieces: pair,
-            kind: 'pair_pakka',
-            from,
-            to: res.to,
-            breaksJail: res.breaksJail,
-            createsPakka: true,
-          });
+          // Pakka binding is only allowed inside the inner ring (never on the outer ring)
+          if (res.to > spec.outerLast) {
+            pushMove({
+              piece: pair[0],
+              groupPieces: pair,
+              kind: 'pair_pakka',
+              from,
+              to: res.to,
+              breaksJail: res.breaksJail,
+              createsPakka: true,
+            });
+          }
         }
       }
 
-      // Fuse 3 pieces into Pakka Triple on exact roll 3 (only after inner gate is open so 0 deadlock)
+      // Fuse 3 pieces into Pakka Triple on exact roll 3 (only inside the inner ring)
       if (pcs.length >= 3 && value === 3 && (!rules.killRequiredForInnerRing || player.hasKilled)) {
         const tri = [pcs[0], pcs[1], pcs[2]];
-        const res = resolveStep(from, 1, player, rules, spec, ghar, isOpp, 3);
-        if (res && res.to < spec.finish) {
+        const res = resolveStep(from, 1, player, rules, spec, ghar, trapIdx, 3);
+        if (res && res.to > spec.outerLast && res.to < spec.finish) {
           pushMove({
             piece: tri[0],
             groupPieces: tri,
@@ -325,7 +335,7 @@ export function legalMoves(state, seat, value) {
       }
     }
 
-    // Also allow fusing existing Pakka Double + 1 single on the same square into Pakka Triple on roll 3
+    // Also allow fusing existing Pakka Double + 1 single on the same inner-ring square into Pakka Triple on roll 3
     if (value === 3 && (!rules.killRequiredForInnerRing || player.hasKilled)) {
       const seenPakkaPos = new Set();
       player.pieces.forEach((pos, p) => {
@@ -337,8 +347,8 @@ export function legalMoves(state, seat, value) {
         const singlesHere = singleByPos.get(pos) ?? [];
         if (!singlesHere.length) return;
         const tri = [...grp, singlesHere[0]];
-        const res = resolveStep(pos, 1, player, rules, spec, ghar, isOpp, 3);
-        if (res && res.to < spec.finish) {
+        const res = resolveStep(pos, 1, player, rules, spec, ghar, trapIdx, 3);
+        if (res && res.to > spec.outerLast && res.to < spec.finish) {
           pushMove({
             piece: tri[0],
             groupPieces: tri,
@@ -472,7 +482,7 @@ export function move(state, seat, moveArg) {
     : 1;
   const cell = cellFor(seat, mv.to);
 
-  if (!isProtectedCell(cell, state.jail, seat, state)) {
+  if (!isProtectedCell(cell, state.jail)) {
     const victims = victimsAt(state, seat, cell, unitSize);
     const back = state.rules.startOnBoard ? 0 : OFF_BOARD;
     for (const v of victims) {
