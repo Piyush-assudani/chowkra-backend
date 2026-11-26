@@ -225,8 +225,6 @@ export class Store {
       return res;
     });
   }
-
-  // ---------- RBAC ----------
   _seedRbac() {
     this.withTx(() => {
       for (const [code, desc] of Object.entries(PERM_DESC)) {
@@ -285,8 +283,6 @@ export class Store {
       this.stmt("SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE r.name = 'owner' LIMIT 1").get(),
     );
   }
-
-  // ---------- users ----------
   getOrCreate(playerId, { name = 'Player', avatar = 0, appVersion = '' } = {}) {
     return this.withTx(() => {
       const existing = this.get(playerId);
@@ -352,8 +348,6 @@ export class Store {
       this.stmt('DELETE FROM users WHERE player_id = ?').run(playerId);
     });
   }
-
-  // ---------- coins & atomic ledger ----------
   addCoins(playerId, amount, reason, refId = '') {
     return this.withTx(() => {
       const r = this.stmt('UPDATE users SET coins = coins + ?, updated_at = ? WHERE player_id = ? AND coins + ? >= 0')
@@ -433,8 +427,6 @@ export class Store {
   setReferredBy(playerId, code) {
     this.stmt('UPDATE users SET referred_by = ?, updated_at = ? WHERE player_id = ?').run(code, Date.now(), playerId);
   }
-
-  // ---------- leaderboard (O(log N) SQL indexed) ----------
   leaderboard(period = 'all', limit = 50) {
     const cap = Math.min(100, Math.max(1, limit));
     if (period === 'all') {
@@ -472,8 +464,6 @@ export class Store {
     `).get(since, mine);
     return { rank: (ahead?.cnt ?? 0) + 1, score: mine };
   }
-
-  // ---------- IP blocks, error tracker, audit ----------
   getIpBlock(ip) {
     return this.stmt('SELECT * FROM ip_blocks WHERE ip = ?').get(ip) ?? null;
   }

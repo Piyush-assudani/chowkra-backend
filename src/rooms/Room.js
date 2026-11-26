@@ -48,7 +48,6 @@ export class Room {
     this.createdAt = Date.now();
   }
 
-  // ---------- membership ----------
   get humans() {
     return Object.values(this.members).filter((m) => !m.isBot);
   }
@@ -140,7 +139,6 @@ export class Room {
     }
   }
 
-  // ---------- game ----------
   start() {
     if (this.status !== 'waiting') return;
     if (this.mode !== 'private') this.fillWithBots();
@@ -288,7 +286,6 @@ export class Room {
     this.onEmpty?.(this);
   }
 
-  // ---------- output ----------
   snapshot() {
     const maxLives = this.game?.rules.maxTimeoutsBeforeBot ?? 3;
     return {
