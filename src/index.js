@@ -444,7 +444,7 @@ function safeRules(r) {
   }
   if (Number.isInteger(r.maxConsecutivePowerRolls)) out.maxConsecutivePowerRolls = [0, 3].includes(r.maxConsecutivePowerRolls) ? r.maxConsecutivePowerRolls : 0;
   if (Number.isInteger(r.timedSeconds)) out.timedSeconds = r.timedSeconds === 0 ? 0 : Math.max(60, Math.min(600, r.timedSeconds));
-  if (['smart', 'casual'].includes(r.botDifficulty)) out.botDifficulty = r.botDifficulty;
+  if (['easy', 'medium', 'hard', 'smart', 'casual'].includes(r.botDifficulty)) out.botDifficulty = r.botDifficulty;
   if (Number.isInteger(r.turnSeconds)) out.turnSeconds = Math.max(10, Math.min(60, r.turnSeconds));
   return out;
 }

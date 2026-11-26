@@ -87,6 +87,14 @@ export function chooseMove(state, seat) {
   const moves = state.moves;
   if (!moves.length) return null;
   const { rules } = state;
+  const diff = rules.botDifficulty === 'casual' ? 'easy' : (rules.botDifficulty || 'medium');
+
+  // Easy: beginner bot — often picks random moves and ignores threat/chase math.
+  if (diff === 'easy' && Math.random() < 0.45) {
+    const m = moves[Math.floor(Math.random() * moves.length)];
+    return { moveId: m.id, piece: m.piece, kind: m.kind };
+  }
+
   const spec = boardSpec();
   const player = state.players[seat];
   const homeCount = player.pieces.filter((p) => p <= 0).length;
@@ -102,18 +110,32 @@ export function chooseMove(state, seat) {
       : 1;
     let score = (m.to / spec.finish) * 35;
 
+    if (diff === 'easy') {
+      if (m.kills > 0) score += 110 * m.kills;
+      if (m.to === spec.finish) score += 140;
+      if (m.from === OFF_BOARD) score += 75;
+      score += Math.random() * 140;
+      if (score > bestScore) {
+        bestScore = score;
+        best = m;
+      }
+      continue;
+    }
+
+    const tacticalScale = diff === 'medium' ? 0.55 : 1.0;
+
     if (m.kills > 0) {
-      score += 500 * m.kills;
-      if (rules.killRequiredForInnerRing && !player.hasKilled) score += 260;
+      score += (diff === 'medium' ? 280 : 500) * m.kills;
+      if (rules.killRequiredForInnerRing && !player.hasKilled) score += 260 * tacticalScale;
     }
     if (m.to === spec.finish) {
-      score += 440;
-      if (finishedCount === 0 && rules.maxOutBeforeFirstFinish > 0) score += 160; // unlocks 4th piece
-      if (finishedCount + 1 >= winNeed) score += 320;
+      score += diff === 'medium' ? 280 : 440;
+      if (finishedCount === 0 && rules.maxOutBeforeFirstFinish > 0) score += 160 * tacticalScale; // unlocks 4th piece
+      if (finishedCount + 1 >= winNeed) score += 320 * tacticalScale;
     }
-    if (m.breaksJail) score += 360;
+    if (m.breaksJail) score += 360 * tacticalScale;
     if (m.from === OFF_BOARD) score += 130;
-    else if (m.from === 0 && homeCount >= 2) score += 95;
+    else if (m.from === 0 && homeCount >= 2) score += 95 * tacticalScale;
 
     // Avoid outer-ring looping slightly when inner entry is unlocked, favour progress after kill
     if (!player.hasKilled && rules.killRequiredForInnerRing && m.to < m.from) score -= 12;
@@ -125,26 +147,26 @@ export function chooseMove(state, seat) {
     const destThreat = destSafe ? 0 : threatProb(state, seat, destCell, spec, unitSize);
 
     if (destSafe && m.to > 0 && m.to < spec.finish) {
-      score += 150;
+      score += 150 * tacticalScale;
     } else if (!destSafe) {
-      score -= 260 * destThreat * (1 + m.to / spec.finish);
+      score -= 260 * tacticalScale * destThreat * (1 + m.to / spec.finish);
     }
-    if (fromThreat > 0) score += 210 * fromThreat * (1 + m.from / spec.finish);
+    if (fromThreat > 0) score += 210 * tacticalScale * fromThreat * (1 + m.from / spec.finish);
 
     // Pakka formation & pair heuristics: fuse Double when chased or near inner ring; avoid Triple trap before kill
     if (m.kind === 'pair_pakka') {
-      score += player.hasKilled ? 65 : 20;
-      if (fromThreat > 0.25) score += 90;
+      score += (player.hasKilled ? 65 : 20) * tacticalScale;
+      if (fromThreat > 0.25) score += 90 * tacticalScale;
     } else if (m.kind === 'pair_soft') {
-      score += 15;
+      score += 15 * tacticalScale;
     } else if (m.kind === 'triple_pakka') {
-      score += 12; // slower to move (needs 3), so only fuse when helpful
+      score += 12 * tacticalScale; // slower to move (needs 3), so only fuse when helpful
     }
 
     const chase = chaseProb(state, seat, m.to, spec, unitSize);
-    if (chase > 0) score += (rules.killRequiredForInnerRing && !player.hasKilled ? 170 : 105) * chase;
+    if (chase > 0) score += (rules.killRequiredForInnerRing && !player.hasKilled ? 170 : 105) * tacticalScale * chase;
 
-    score += Math.random() * (rules.botDifficulty === 'casual' ? 45 : 3);
+    score += Math.random() * (diff === 'medium' ? 55 : 3);
     if (score > bestScore) {
       bestScore = score;
       best = m;

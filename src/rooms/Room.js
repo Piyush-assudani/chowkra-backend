@@ -257,7 +257,7 @@ export class Room {
     if (this.status !== 'playing') return;
     const seat = this.game.turn;
     const member = this.members[seat];
-    if (isTimeout && !member.isBot) {
+    if (isTimeout && !member.isBot && this.mode !== 'bots' && this.mode !== 'local') {
       member.timeouts += 1;
       if (member.timeouts >= this.game.rules.maxTimeoutsBeforeBot) member.autoPlay = true;
     }
