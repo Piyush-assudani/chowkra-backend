@@ -1,0 +1,11 @@
+node_modules/
+data/
+.env
+.env.*
+.DS_Store
+*.log
+*.db
+*.db-wal
+*.db-shm
+.jwt_secret
+
