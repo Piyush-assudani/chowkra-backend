@@ -105,7 +105,17 @@ export function chooseMove(state, seat) {
   let bestScore = -Infinity;
 
   for (const m of moves) {
-    const unitSize = m.kind === 'pair_pakka' || m.kind === 'triple_pakka' || m.kind === 'pakka_move'
+    if (m.kind === 'inner_stay') {
+      const fromCell = m.from >= 0 ? cellFor(seat, m.from) : null;
+      const fromThreat = fromCell ? threatProb(state, seat, fromCell, spec, 1) : 0;
+      const score = diff === 'easy' ? Math.random() * 40 : -20 - 150 * (diff === 'medium' ? 0.55 : 1.0) * fromThreat;
+      if (score > bestScore) {
+        bestScore = score;
+        best = m;
+      }
+      continue;
+    }
+    const unitSize = m.kind === 'pair_pakka' || m.kind === 'triple_pakka' || m.kind === 'pakka_move' || m.kind === 'inner_rotate'
       ? (m.groupPieces?.length ?? 1)
       : 1;
     let score = (m.to / spec.finish) * 35;
@@ -165,6 +175,8 @@ export function chooseMove(state, seat) {
 
     const chase = chaseProb(state, seat, m.to, spec, unitSize);
     if (chase > 0) score += (rules.killRequiredForInnerRing && !player.hasKilled ? 170 : 105) * tacticalScale * chase;
+
+    if (m.innerAction === 'stay') score -= 35 * tacticalScale;
 
     score += Math.random() * (diff === 'medium' ? 55 : 3);
     if (score > bestScore) {

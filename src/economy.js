@@ -15,14 +15,18 @@ export const BOT_WIN_COINS = 20;
 export const DAILY_REWARDS = [50, 75, 100, 150, 200, 300, 500];
 
 export const QUICK_CHATS = [
-  'Best of luck!',
-  'Nice move!',
-  'Oops!',
-  'Play fast!',
-  'Please don’t kill!',
-  'Good game!',
-  'Haha!',
+  'Chamma incoming!',
+  'Ashta time!',
+  'Pakka ready?',
+  'Bach ke rehna!',
+  'Kya baat hai!',
   'Well played!',
+  'Hurry up!',
+  'Good luck!',
+  'Close call!',
+  'GG!',
+  'Rematch?',
+  'Chauwa Astha king!',
 ];
 
 export const STAKES = [0, 100, 500, 1000, 5000];

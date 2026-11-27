@@ -132,7 +132,7 @@ export function createServer({ dbPath, corsOrigins } = {}) {
   const renderLegal = (file) =>
     readFileSync(fileURLToPath(new URL(`../public/${file}`, import.meta.url)), 'utf8')
       .replaceAll('{{COMPANY_NAME}}', brandName)
-      .replaceAll('{{SUPPORT_EMAIL_LINE}}', supportMail ? `<a href="mailto:${supportMail}">${supportMail}</a>` : 'Use Help Desk in Settings inside the Chowkra app');
+      .replaceAll('{{SUPPORT_EMAIL_LINE}}', supportMail ? `<a href="mailto:${supportMail}">${supportMail}</a>` : 'Use Help Desk in Settings inside the Chauwa Astha app');
   const privacyHtml = renderLegal('privacy.html');
   const termsHtml = renderLegal('terms.html');
 
@@ -403,8 +403,9 @@ export function createServer({ dbPath, corsOrigins } = {}) {
       const room = rooms.roomOf(me.playerId);
       const seat = room?.memberByPlayer(me.playerId)?.seat;
       if (!room || seat === undefined) throw new GameError('NO_ROOM', 'Not in a room');
-      if (typeof message !== 'string' || !QUICK_CHATS.includes(message)) throw new GameError('BAD_CHAT', 'Unknown quick chat message');
-      io.to(`room:${room.code}`).emit('chat:quick', { seat, message });
+      const clean = typeof message === 'string' ? message.replace(/[\r\n\t]+/g, ' ').trim().slice(0, 120) : '';
+      if (!clean || /[<>]/.test(clean)) throw new GameError('BAD_CHAT', 'Invalid chat message');
+      io.to(`room:${room.code}`).emit('chat:quick', { seat, message: clean });
       ok(ack);
     }, { bucket: 'chat', limit: 15, windowMs: 10_000 }));
 

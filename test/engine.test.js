@@ -214,3 +214,85 @@ test('timed mode endTimedGame ranks remaining players by score', () => {
   assert.deepEqual(g.ranks, [1, 2, 0]);
   assert.ok(ev.some((e) => e.type === 'gameOver' && e.timed));
 });
+
+test('video rule (10.32.24): losing all active pieces on board resets hasKilled (kill down)', () => {
+  const g = createGame([0, 2]);
+  g.players[0].hasKilled = true;
+  g.players[0].pieces = [5, 0, 0, 0];
+  const c5 = cellFor(0, 5);
+  const idx2 = PATHS[2].findIndex(([r, c]) => r === c5[0] && c === c5[1]);
+  g.players[2].pieces = [idx2 - 1, 0, 0, 0];
+  g.turn = 2;
+  roll(g, 2, R(1));
+  const ev = move(g, 2, 0);
+  assert.equal(g.players[0].pieces[0], 0);
+  assert.equal(g.players[0].hasKilled, false, 'hasKilled resets when all active pieces on board are killed');
+  assert.ok(ev.some((e) => e.type === 'killReset' && e.seat === 0));
+
+  // Seat 0 must wrap outer ring again until scoring another kill
+  g.players[0].pieces = [14, 0, 0, 0];
+  g.turn = 0;
+  const lockedMoves = legalMoves(g, 0, 3);
+  assert.equal(lockedMoves[0].to, 1);
+});
+
+test('video rule (10.32.26): inner-ring overshoot offers Rotate vs Stay on first choice and locks selection', () => {
+  const g1 = createGame([0, 2]);
+  g1.players[0].hasKilled = true;
+  g1.players[0].pieces = [22, 0, 0, 0];
+  const firstOvershoot = legalMoves(g1, 0, 3).filter((m) => m.piece === 0);
+  const rotMv = firstOvershoot.find((m) => m.innerAction === 'rotate');
+  const stayMv = firstOvershoot.find((m) => m.innerAction === 'stay');
+  assert.ok(rotMv && stayMv, 'both Rotate and Stay offered on first inner overshoot');
+  assert.equal(rotMv.to, 17);
+  assert.equal(stayMv.to, 22);
+
+  // Choosing Rotate locks piece into rotating until exact roll to centre
+  roll(g1, 0, R(3));
+  move(g1, 0, { moveId: rotMv.id });
+  assert.equal(g1.players[0].pieces[0], 17);
+  assert.equal(g1.players[0].innerMode[0], 'rotate');
+  g1.players[0].pieces[0] = 23;
+  const secondRotOnly = legalMoves(g1, 0, 3).filter((m) => m.piece === 0);
+  assert.equal(secondRotOnly.length, 1);
+  assert.equal(secondRotOnly[0].innerAction, 'rotate');
+  assert.equal(secondRotOnly[0].to, 18);
+
+  // Choosing Stay locks piece so it can never rotate on future overshoots
+  const g2 = createGame([0, 2]);
+  g2.players[0].hasKilled = true;
+  g2.players[0].pieces = [22, 0, 0, 0];
+  const stayChoice = legalMoves(g2, 0, 3).find((m) => m.piece === 0 && m.innerAction === 'stay');
+  roll(g2, 0, R(3));
+  move(g2, 0, { moveId: stayChoice.id });
+  assert.equal(g2.players[0].pieces[0], 22);
+  assert.equal(g2.players[0].innerMode[0], 'stay');
+  assert.equal(legalMoves(g2, 0, 3).filter((m) => m.piece === 0).length, 0, 'stay piece cannot rotate on overshoot');
+  assert.ok(legalMoves(g2, 0, 2).some((m) => m.piece === 0 && m.to === FINISH), 'stay piece can still enter centre on exact roll');
+});
+
+test('audio (10.31.21) & video (10.32.32): Pakka Triple only in inner ring, moves on 3, kills only Pakka Triple', () => {
+  const g = createGame([0, 2]);
+  g.players[0].hasKilled = true;
+  g.players[0].pieces = [5, 5, 5, 0];
+  assert.ok(!legalMoves(g, 0, 3).some((m) => m.kind === 'triple_pakka'), 'triple_pakka NOT allowed on outer ring');
+
+  g.players[0].pieces = [17, 17, 17, 0];
+  const triMv = legalMoves(g, 0, 3).find((m) => m.kind === 'triple_pakka');
+  assert.ok(triMv && triMv.to === 18);
+  roll(g, 0, R(3));
+  move(g, 0, { moveId: triMv.id });
+  assert.deepEqual(g.players[0].pieces.slice(0, 3), [18, 18, 18]);
+
+  // Enemy single cannot kill Pakka Triple, and Pakka Triple does not kill enemy single
+  const c18 = cellFor(0, 18);
+  const idx2 = PATHS[2].findIndex(([r, c]) => r === c18[0] && c === c18[1]);
+  g.players[2].hasKilled = true;
+  g.players[2].pieces = [idx2, 0, 0, 0];
+  g.players[0].pieces = [17, 17, 17, 0];
+  g.players[0].pakka = [1, 1, 1, 0];
+  const mvAt18 = legalMoves(g, 0, 3).find((m) => m.kind === 'pakka_move');
+  assert.equal(mvAt18.kills, 0, 'Pakka Triple does not kill enemy single');
+  assert.ok(!legalMoves(g, 0, 2).some((m) => m.groupPieces.includes(0)), 'triple cannot move on 2');
+  assert.equal(mvAt18.to, 18, 'triple moves 1 on 3 (17 -> 18)');
+});

@@ -46,6 +46,7 @@ export function createGame(seats, ruleOverrides = {}) {
       color: COLORS[seat],
       pieces: Array(rules.piecesPerPlayer).fill(startPos),
       pakka: Array(rules.piecesPerPlayer).fill(0),
+      innerMode: Array(rules.piecesPerPlayer).fill(null), // null | 'rotate' | 'stay'
       nextPakkaId: 1,
       hasKilled: false,
       kills: 0,
@@ -125,7 +126,21 @@ function resolveStep(from, steps, player, rules, spec, ghar, trapIdx, unitSize =
   }
 
   const to = from + steps;
-  if (to > spec.finish) return null;
+  if (to > spec.finish) {
+    // Inner-ring overshoot: allow rotate/stay depending on piece's innerMode
+    if (from > spec.outerLast && from < spec.finish) {
+      const innerStart = spec.outerLast + 1;
+      const innerLen = spec.finish - innerStart;
+      const wrappedTo = innerStart + ((from - innerStart + steps) % innerLen);
+      if (trapIdx >= 0) {
+        for (let k = 1; k < steps; k++) {
+          if (innerStart + ((from - innerStart + k) % innerLen) === trapIdx) return null;
+        }
+      }
+      return { to: wrappedTo, breaksJail: false, overshoot: true };
+    }
+    return null;
+  }
   if (trapIdx >= 0 && from < trapIdx && to > trapIdx) {
     // Cannot jump over the active Winner Ghar trap; must land at the trap cell first
     return null;
@@ -203,8 +218,35 @@ export function legalMoves(state, seat, value) {
     const unitSize = mv.kind === 'pair_pakka' || mv.kind === 'triple_pakka' || mv.kind === 'pakka_move'
       ? mv.groupPieces.length
       : 1;
-    const kills = victimsAt(state, seat, cell, unitSize).length;
+    const kills = mv.innerAction === 'stay' ? 0 : victimsAt(state, seat, cell, unitSize).length;
     moves.push({ id: nextId++, ...mv, kills, cell });
+  };
+
+  const pushResolved = (baseMv, res) => {
+    if (!res) return;
+    if (!res.overshoot) {
+      pushMove({ ...baseMv, to: res.to, breaksJail: res.breaksJail });
+      return;
+    }
+    const mode = player.innerMode?.[baseMv.piece] ?? null;
+    if (mode === 'stay') return;
+    const isPakka = baseMv.kind === 'pakka_move';
+    pushMove({
+      ...baseMv,
+      kind: isPakka ? 'pakka_move' : 'inner_rotate',
+      to: res.to,
+      breaksJail: res.breaksJail,
+      innerAction: 'rotate',
+    });
+    if (mode === null) {
+      pushMove({
+        ...baseMv,
+        kind: isPakka ? 'pakka_move' : 'inner_stay',
+        to: baseMv.from,
+        breaksJail: false,
+        innerAction: 'stay',
+      });
+    }
   };
 
   // 1. Move already-fused Pakka groups (deduped once per group)
@@ -237,16 +279,13 @@ export function legalMoves(state, seat, value) {
       if (value % grp.length !== 0) return;
       const steps = value / grp.length;
       const res = resolveStep(from, steps, player, rules, spec, ghar, trapIdx, grp.length);
-      if (!res) return;
-      pushMove({
+      pushResolved({
         piece: grp[0],
         groupPieces: grp,
         kind: 'pakka_move',
         from,
-        to: res.to,
-        breaksJail: res.breaksJail,
         createsPakka: false,
-      });
+      }, res);
       return;
     }
 
@@ -271,16 +310,13 @@ export function legalMoves(state, seat, value) {
     }
 
     const res = resolveStep(from, value, player, rules, spec, ghar, trapIdx, 1);
-    if (!res) return;
-    pushMove({
+    pushResolved({
       piece,
       groupPieces: [piece],
       kind: 'single',
       from,
-      to: res.to,
-      breaksJail: res.breaksJail,
       createsPakka: false,
-    });
+    }, res);
   });
 
   // 2. Pair / Triple options when multiple un-fused pieces share a board square (0 < from < finish)
@@ -458,7 +494,23 @@ export function move(state, seat, moveArg) {
 
   const player = state.players[seat];
   if (!player.pakka) player.pakka = Array(player.pieces.length).fill(0);
+  if (!player.innerMode) player.innerMode = Array(player.pieces.length).fill(null);
   const events = [];
+
+  let extra = state.rules.extraTurnRolls.includes(state.roll.value);
+
+  if (mv.innerAction === 'stay') {
+    for (const p of mv.groupPieces) {
+      player.innerMode[p] = 'stay';
+      events.push({ type: 'move', seat, piece: p, from: mv.from, to: mv.from, kind: 'inner_stay' });
+    }
+    endTurn(state, events, extra);
+    return events;
+  }
+
+  if (mv.innerAction === 'rotate') {
+    for (const p of mv.groupPieces) player.innerMode[p] = 'rotate';
+  }
 
   if (mv.createsPakka) {
     const newId = player.nextPakkaId ?? 1;
@@ -472,7 +524,6 @@ export function move(state, seat, moveArg) {
     events.push({ type: 'move', seat, piece: p, from: mv.from, to: mv.to, kind: mv.kind });
   }
 
-  let extra = state.rules.extraTurnRolls.includes(state.roll.value);
   if (mv.breaksJail && state.jail) {
     events.push({ type: 'jailBroken', seat, piece: mv.piece, key: state.jail.key });
   }
@@ -485,12 +536,23 @@ export function move(state, seat, moveArg) {
   if (!isProtectedCell(cell, state.jail)) {
     const victims = victimsAt(state, seat, cell, unitSize);
     const back = state.rules.startOnBoard ? 0 : OFF_BOARD;
+    const victimSeats = new Set();
     for (const v of victims) {
       const vp = state.players[v.seat];
       vp.pieces[v.piece] = back;
       if (vp.pakka) vp.pakka[v.piece] = 0;
+      if (vp.innerMode) vp.innerMode[v.piece] = null;
       vp.score = computeScore(vp, spec.finish);
+      victimSeats.add(v.seat);
       events.push({ type: 'kill', seat, victimSeat: v.seat, victimPiece: v.piece, from: v.from, to: back });
+    }
+    for (const vs of victimSeats) {
+      const vp = state.players[vs];
+      const hasActiveOnBoard = vp.pieces.some((pos) => pos > 0 && pos < spec.finish);
+      if (vp.hasKilled && !hasActiveOnBoard) {
+        vp.hasKilled = false;
+        events.push({ type: 'killReset', seat: vs });
+      }
     }
     if (victims.length) {
       player.hasKilled = true;
