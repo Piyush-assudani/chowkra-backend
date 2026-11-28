@@ -80,10 +80,10 @@ test('video rules (20.13.14 & 14.19.34): Pakka Judwa only in inner ring, moves o
   g.players[0].hasKilled = true;
   g.players[2].hasKilled = true;
 
-  // Outer ring: pair_soft allowed, pair_pakka NOT allowed outside inner ring
+  // Outer ring: neither pair_soft nor pair_pakka is allowed outside the inner ring
   g.players[0].pieces = [5, 5, 1, 0];
   const outerMv = legalMoves(g, 0, 2);
-  assert.ok(outerMv.some((m) => m.kind === 'pair_soft'), 'pair_soft allowed on outer ring');
+  assert.ok(!outerMv.some((m) => m.kind === 'pair_soft'), 'pair_soft NOT allowed on outer ring');
   assert.ok(!outerMv.some((m) => m.kind === 'pair_pakka'), 'pair_pakka NOT allowed on outer ring');
 
   // Inner ring (index 17 -> 18): both pair_soft and pair_pakka offered
@@ -163,16 +163,36 @@ test('video rules (20.13.12 & 14.19.34): Winner Ghar is at winner gate only, shi
   assert.ok(gharEv.some((e) => e.type === 'jailCreated' && e.key === 4 && e.index === 23));
   assert.equal(g.turn, 1);
 
-  // Piece at Red's Ghar cell cannot leave on 1,2,3 -> can only leave on exact key 4
+  // Stepping past Winner Ghar is NOT compulsory when rolling higher than distance to trap
+  const passG = createGame([0, 1, 2]);
+  passG.jail = { creator: 0, key: 4, index: 23 };
+  passG.players[1].pieces = [oppTrapIdx - 1, 0, 0, 0];
+  passG.players[1].hasKilled = true;
+  assert.ok(
+    legalMoves(passG, 1, 2).some((m) => m.piece === 0 && m.to === oppTrapIdx + 1),
+    'can step past Winner Ghar without stopping inside it',
+  );
+
+  // Piece at Red's Ghar cell cannot leave on 1,2,3 -> unlocks on exact key 4 and advances 4 steps along own path (not teleport to finish)
   assert.ok(!legalMoves(g, 1, 1).some((m) => m.piece === 0));
   // Piece at Seat 1's own index 23 ([2,3]) is NOT trapped because Winner Ghar is only at Red's gate!
   assert.ok(legalMoves(g, 1, 1).some((m) => m.piece === 1 && m.to === FINISH));
   const unlockMoves = legalMoves(g, 1, 4);
-  assert.ok(unlockMoves.some((m) => m.piece === 0 && m.breaksJail && m.to === FINISH));
+  assert.ok(unlockMoves.some((m) => m.piece === 0 && m.breaksJail && m.to === oppTrapIdx + 4));
   roll(g, 1, R(4));
   const brkEv = move(g, 1, 0);
   assert.ok(brkEv.some((e) => e.type === 'jailBroken'));
-  assert.equal(g.players[1].pieces[0], FINISH);
+  assert.equal(g.players[1].pieces[0], oppTrapIdx + 4);
+
+  // Only reaches FINISH directly if advancing key steps along own path lands on FINISH (e.g. Seat 3 at index 21 + key 3)
+  const trap3 = PATHS[3].findIndex(([r, c]) => r === redGate[0] && c === redGate[1]);
+  assert.equal(trap3, 21);
+  const gSeat3 = createGame([0, 2, 3]);
+  gSeat3.jail = { creator: 0, key: 3, index: 23 };
+  gSeat3.players[3].pieces = [trap3, 0, 0, 0];
+  gSeat3.players[3].hasKilled = true;
+  const s3Unlock = legalMoves(gSeat3, 3, 3).find((m) => m.piece === 0);
+  assert.ok(s3Unlock && s3Unlock.breaksJail && s3Unlock.to === FINISH);
 });
 
 test('X squares are safe — no kill', () => {
@@ -271,15 +291,18 @@ test('video rule (10.32.26): inner-ring overshoot offers Rotate vs Stay on first
   assert.ok(legalMoves(g2, 0, 2).some((m) => m.piece === 0 && m.to === FINISH), 'stay piece can still enter centre on exact roll');
 });
 
-test('audio (10.31.21) & video (10.32.32): Pakka Triple only in inner ring, moves on 3, kills only Pakka Triple', () => {
+test('audio (10.31.21 / 07.25.04): Triple mirrors Double in inner ring (triple_soft + triple_pakka, moves on 3, kills only Triple)', () => {
   const g = createGame([0, 2]);
   g.players[0].hasKilled = true;
   g.players[0].pieces = [5, 5, 5, 0];
-  assert.ok(!legalMoves(g, 0, 3).some((m) => m.kind === 'triple_pakka'), 'triple_pakka NOT allowed on outer ring');
+  assert.ok(!legalMoves(g, 0, 3).some((m) => m.kind === 'triple_pakka' || m.kind === 'triple_soft'), 'Triple NOT allowed on outer ring');
 
   g.players[0].pieces = [17, 17, 17, 0];
-  const triMv = legalMoves(g, 0, 3).find((m) => m.kind === 'triple_pakka');
-  assert.ok(triMv && triMv.to === 18);
+  const mvs = legalMoves(g, 0, 3);
+  const softTri = mvs.find((m) => m.kind === 'triple_soft');
+  const triMv = mvs.find((m) => m.kind === 'triple_pakka');
+  assert.ok(softTri && softTri.to === 18 && !softTri.createsPakka, 'triple_soft moves 3 un-fused 1 step');
+  assert.ok(triMv && triMv.to === 18 && triMv.createsPakka, 'triple_pakka binds 3 and moves 1 step');
   roll(g, 0, R(3));
   move(g, 0, { moveId: triMv.id });
   assert.deepEqual(g.players[0].pieces.slice(0, 3), [18, 18, 18]);
@@ -295,4 +318,13 @@ test('audio (10.31.21) & video (10.32.32): Pakka Triple only in inner ring, move
   assert.equal(mvAt18.kills, 0, 'Pakka Triple does not kill enemy single');
   assert.ok(!legalMoves(g, 0, 2).some((m) => m.groupPieces.includes(0)), 'triple cannot move on 2');
   assert.equal(mvAt18.to, 18, 'triple moves 1 on 3 (17 -> 18)');
+});
+
+test('audio (07.25.07): Quick 4-piece preset configures 4 unlocked pieces with fast 12s turns', async () => {
+  const { VARIANTS } = await import('../src/game/rules.js');
+  const g = createGame([0, 2], VARIANTS.quick4);
+  assert.equal(g.players[0].pieces.length, 4);
+  assert.equal(g.rules.maxOutBeforeFirstFinish, 4);
+  assert.equal(g.rules.killRequiredForInnerRing, false);
+  assert.equal(g.rules.turnSeconds, 12);
 });

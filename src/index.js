@@ -117,7 +117,7 @@ export function createServer({ dbPath, corsOrigins } = {}) {
         spinPrizes: SPIN_PRIZES.map((p) => p.coins),
         dailyRewards: DAILY_REWARDS,
         quickChats: QUICK_CHATS,
-        variants: ['classic', 'quick', 'blitz'],
+        variants: ['classic', 'quick', 'quick4', 'blitz'],
         boardSize: 5,
       };
       cache.set('cfg', cfg, 60_000);

@@ -192,9 +192,11 @@ export class Room {
   afterEvents(events) {
     this.clearTurnTimer();
     if (this.game) {
-      // Auto-move only when there is a single unambiguous destination and no Pakka choice.
+      // Auto-move only when there is a single unambiguous destination and no Pakka / inner choice.
       if (this.game.phase === 'move') {
-        const hasChoice = this.game.moves.some((m) => m.createsPakka || m.kind === 'pair_soft');
+        const hasChoice = this.game.moves.some(
+          (m) => m.createsPakka || m.kind === 'pair_soft' || m.kind === 'triple_soft' || m.innerAction,
+        );
         const dests = new Set(this.game.moves.map((m) => `${m.from}>${m.to}`));
         if (!hasChoice && dests.size === 1) {
           const auto = move(this.game, this.game.turn, { moveId: this.game.moves[0].id });
@@ -241,11 +243,16 @@ export class Room {
   scheduleTurn(events) {
     const seat = this.game.turn;
     const member = this.members[seat];
-    // Match snappy client animation durations while keeping moves readable.
-    const animMs = Math.min(2000, 160 + events.filter((e) => e.type === 'move' || e.type === 'kill').length * 420);
+    // Match snappy client animation durations (~420ms toss, ~55ms/step flight, ~220ms kill).
+    const hasRoll = events.some((e) => e.type === 'roll');
+    const moveSteps = events
+      .filter((e) => e.type === 'move')
+      .reduce((sum, e) => sum + Math.max(1, Math.min(10, Math.abs((e.to ?? 0) - (e.from ?? 0)))), 0);
+    const kills = events.filter((e) => e.type === 'kill').length;
+    const animMs = Math.min(1300, (hasRoll ? 430 : 70) + moveSteps * 55 + kills * 210);
     if (member.isBot || member.autoPlay || member.left) {
       this.deadline = null;
-      this.timer = setTimeout(() => this.autoAct(false), animMs + 260 + randomInt(220));
+      this.timer = setTimeout(() => this.autoAct(false), animMs + 90 + randomInt(90));
     } else {
       const ms = this.game.rules.turnSeconds * 1000 + animMs;
       this.deadline = Date.now() + ms;

@@ -163,14 +163,15 @@ export function chooseMove(state, seat) {
     }
     if (fromThreat > 0) score += 210 * tacticalScale * fromThreat * (1 + m.from / spec.finish);
 
-    // Pakka formation & pair heuristics: fuse Double when chased or near inner ring; avoid Triple trap before kill
+    // Pakka formation & soft-group heuristics (Double & Triple mirror identically)
     if (m.kind === 'pair_pakka') {
       score += (player.hasKilled ? 65 : 20) * tacticalScale;
       if (fromThreat > 0.25) score += 90 * tacticalScale;
-    } else if (m.kind === 'pair_soft') {
-      score += 15 * tacticalScale;
+    } else if (m.kind === 'pair_soft' || m.kind === 'triple_soft') {
+      score += 18 * tacticalScale;
     } else if (m.kind === 'triple_pakka') {
-      score += 12 * tacticalScale; // slower to move (needs 3), so only fuse when helpful
+      score += 22 * tacticalScale;
+      if (fromThreat > 0.25) score += 70 * tacticalScale;
     }
 
     const chase = chaseProb(state, seat, m.to, spec, unitSize);

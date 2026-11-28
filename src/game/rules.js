@@ -41,6 +41,14 @@ export const VARIANTS = Object.freeze({
     jailOnFirstWin: false,
     turnSeconds: 12,
   },
+  quick4: {
+    piecesPerPlayer: 4,
+    maxOutBeforeFirstFinish: 4,
+    killRequiredForInnerRing: false,
+    pakkaEnabled: false,
+    jailOnFirstWin: false,
+    turnSeconds: 12,
+  },
   blitz: {
     timedSeconds: 180,
     turnSeconds: 12,

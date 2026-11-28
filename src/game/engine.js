@@ -103,7 +103,7 @@ function trapIndexFor(seat, ghar, spec) {
   return -1;
 }
 
-function resolveStep(from, steps, player, rules, spec, ghar, trapIdx, unitSize = 1) {
+function resolveStep(from, steps, player, rules, spec, ghar, trapIdx, unitSize = 1, bypassTrap = false) {
   if (from === spec.finish) return null;
   if (from === OFF_BOARD) {
     if (unitSize !== 1 || !rules.entryRolls.includes(steps)) return null;
@@ -111,8 +111,8 @@ function resolveStep(from, steps, player, rules, spec, ghar, trapIdx, unitSize =
   }
   if (from === 0 && !canLeaveHome(player, rules, spec.finish)) return null;
 
-  // Stuck in Winner Ghar trap at winner's gate cell: exact key roll enters centre finish directly
-  if (trapIdx >= 0 && from === trapIdx) {
+  // Stuck in Winner Ghar trap at winner's gate cell: exact key roll unlocks and moves along own path
+  if (!bypassTrap && trapIdx >= 0 && from === trapIdx) {
     return null; // handled explicitly before resolveStep
   }
 
@@ -132,20 +132,29 @@ function resolveStep(from, steps, player, rules, spec, ghar, trapIdx, unitSize =
       const innerStart = spec.outerLast + 1;
       const innerLen = spec.finish - innerStart;
       const wrappedTo = innerStart + ((from - innerStart + steps) % innerLen);
-      if (trapIdx >= 0) {
-        for (let k = 1; k < steps; k++) {
-          if (innerStart + ((from - innerStart + k) % innerLen) === trapIdx) return null;
-        }
-      }
       return { to: wrappedTo, breaksJail: false, overshoot: true };
     }
     return null;
   }
-  if (trapIdx >= 0 && from < trapIdx && to > trapIdx) {
-    // Cannot jump over the active Winner Ghar trap; must land at the trap cell first
-    return null;
-  }
+  // Stepping past trapIdx without landing on it is allowed (entering Ghar is never compulsory).
   return { to, breaksJail: false };
+}
+
+function resolveJailEscape(from, steps, player, rules, spec, ghar, trapIdx, unitSize = 1) {
+  const res = resolveStep(from, steps, player, rules, spec, ghar, trapIdx, unitSize, true);
+  if (!res) return null;
+  let to = res.to;
+  // An 8-step wrap on the 8-cell inner ring lands back on trapIdx; advance 1 past so the piece exits Ghar.
+  if (to === trapIdx) {
+    const innerStart = spec.outerLast + 1;
+    const innerLen = spec.finish - innerStart;
+    to = innerStart + ((trapIdx - innerStart + 1) % innerLen);
+  }
+  return {
+    to,
+    breaksJail: true,
+    innerAction: res.overshoot ? 'rotate' : undefined,
+  };
 }
 
 function isProtectedCell(cell, ghar) {
@@ -263,15 +272,20 @@ export function legalMoves(state, seat, value) {
 
       if (trapIdx >= 0 && from === trapIdx) {
         if (value === ghar.key) {
-          pushMove({
-            piece: grp[0],
-            groupPieces: grp,
-            kind: 'pakka_move',
-            from,
-            to: spec.finish,
-            breaksJail: true,
-            createsPakka: false,
-          });
+          const steps = value % grp.length === 0 ? value / grp.length : 1;
+          const esc = resolveJailEscape(from, steps, player, rules, spec, ghar, trapIdx, grp.length);
+          if (esc) {
+            pushMove({
+              piece: grp[0],
+              groupPieces: grp,
+              kind: 'pakka_move',
+              from,
+              to: esc.to,
+              breaksJail: true,
+              createsPakka: false,
+              ...(esc.innerAction ? { innerAction: esc.innerAction } : {}),
+            });
+          }
         }
         return;
       }
@@ -293,18 +307,22 @@ export function legalMoves(state, seat, value) {
     if (!singleByPos.has(from)) singleByPos.set(from, []);
     singleByPos.get(from).push(piece);
 
-    // Ghar unlock for trapped single piece
+    // Ghar unlock for trapped single piece: advance along own path (not direct teleport to centre unless path reaches finish)
     if (trapIdx >= 0 && from === trapIdx) {
       if (value === ghar.key) {
-        pushMove({
-          piece,
-          groupPieces: [piece],
-          kind: 'single',
-          from,
-          to: spec.finish,
-          breaksJail: true,
-          createsPakka: false,
-        });
+        const esc = resolveJailEscape(from, value, player, rules, spec, ghar, trapIdx, 1);
+        if (esc) {
+          pushMove({
+            piece,
+            groupPieces: [piece],
+            kind: 'single',
+            from,
+            to: esc.to,
+            breaksJail: true,
+            createsPakka: false,
+            ...(esc.innerAction ? { innerAction: esc.innerAction } : {}),
+          });
+        }
       }
       return;
     }
@@ -319,82 +337,60 @@ export function legalMoves(state, seat, value) {
     }, res);
   });
 
-  // 2. Pair / Triple options when multiple un-fused pieces share a board square (0 < from < finish)
+  // 2. Pair / Triple options ONLY inside the inner ring (from > spec.outerLast && from < spec.finish).
+  // Outer-ring pieces always move separately as singles (no pair_soft, pair_pakka, triple_soft, or triple_pakka).
   if (rules.pakkaEnabled) {
+    const pushGroupInnerMove = (pcs, from, kind, createsPakka, res) => {
+      if (!res || res.to <= spec.outerLast || res.to > spec.finish) return;
+      if (createsPakka && res.to >= spec.finish) return;
+      if (res.overshoot && pcs.some((p) => player.innerMode?.[p] === 'stay')) return;
+      pushMove({
+        piece: pcs[0],
+        groupPieces: pcs,
+        kind,
+        from,
+        to: res.to,
+        breaksJail: res.breaksJail,
+        createsPakka,
+        ...(res.overshoot ? { innerAction: 'rotate' } : {}),
+      });
+    };
+
     for (const [from, pcs] of singleByPos) {
-      if (from <= 0 || from >= spec.finish) continue;
+      if (from <= spec.outerLast || from >= spec.finish) continue;
       if (trapIdx >= 0 && from === trapIdx) continue;
 
       if (pcs.length >= 2 && value % 2 === 0) {
         const pair = [pcs[0], pcs[1]];
         const res = resolveStep(from, value / 2, player, rules, spec, ghar, trapIdx, 2);
-        if (res && res.to < spec.finish) {
-          pushMove({
-            piece: pair[0],
-            groupPieces: pair,
-            kind: 'pair_soft',
-            from,
-            to: res.to,
-            breaksJail: res.breaksJail,
-            createsPakka: false,
-          });
-          // Pakka binding is only allowed inside the inner ring (never on the outer ring)
-          if (res.to > spec.outerLast) {
-            pushMove({
-              piece: pair[0],
-              groupPieces: pair,
-              kind: 'pair_pakka',
-              from,
-              to: res.to,
-              breaksJail: res.breaksJail,
-              createsPakka: true,
-            });
-          }
-        }
+        pushGroupInnerMove(pair, from, 'pair_soft', false, res);
+        pushGroupInnerMove(pair, from, 'pair_pakka', true, res);
       }
 
-      // Fuse 3 pieces into Pakka Triple on exact roll 3 (only inside the inner ring)
-      if (pcs.length >= 3 && value === 3 && (!rules.killRequiredForInnerRing || player.hasKilled)) {
+      // Same as double: when 3 pieces share an inner-ring square on roll 3 (value % 3 === 0), allow Soft Triple or Bind Pakka Triple
+      if (pcs.length >= 3 && value % 3 === 0) {
         const tri = [pcs[0], pcs[1], pcs[2]];
-        const res = resolveStep(from, 1, player, rules, spec, ghar, trapIdx, 3);
-        if (res && res.to > spec.outerLast && res.to < spec.finish) {
-          pushMove({
-            piece: tri[0],
-            groupPieces: tri,
-            kind: 'triple_pakka',
-            from,
-            to: res.to,
-            breaksJail: res.breaksJail,
-            createsPakka: true,
-          });
-        }
+        const res = resolveStep(from, value / 3, player, rules, spec, ghar, trapIdx, 3);
+        pushGroupInnerMove(tri, from, 'triple_soft', false, res);
+        pushGroupInnerMove(tri, from, 'triple_pakka', true, res);
       }
     }
 
     // Also allow fusing existing Pakka Double + 1 single on the same inner-ring square into Pakka Triple on roll 3
-    if (value === 3 && (!rules.killRequiredForInnerRing || player.hasKilled)) {
+    if (value % 3 === 0) {
       const seenPakkaPos = new Set();
       player.pieces.forEach((pos, p) => {
         const gid = player.pakka?.[p] ?? 0;
-        if (!gid || pos <= 0 || pos >= spec.finish || seenPakkaPos.has(gid)) return;
+        if (!gid || pos <= spec.outerLast || pos >= spec.finish || seenPakkaPos.has(gid)) return;
+        if (trapIdx >= 0 && pos === trapIdx) return;
         const grp = pakkaMembers(player, gid);
         if (grp.length !== 2) return;
         seenPakkaPos.add(gid);
         const singlesHere = singleByPos.get(pos) ?? [];
         if (!singlesHere.length) return;
         const tri = [...grp, singlesHere[0]];
-        const res = resolveStep(pos, 1, player, rules, spec, ghar, trapIdx, 3);
-        if (res && res.to > spec.outerLast && res.to < spec.finish) {
-          pushMove({
-            piece: tri[0],
-            groupPieces: tri,
-            kind: 'triple_pakka',
-            from: pos,
-            to: res.to,
-            breaksJail: res.breaksJail,
-            createsPakka: true,
-          });
-        }
+        const res = resolveStep(pos, value / 3, player, rules, spec, ghar, trapIdx, 3);
+        pushGroupInnerMove(tri, pos, 'triple_pakka', true, res);
       });
     }
   }
