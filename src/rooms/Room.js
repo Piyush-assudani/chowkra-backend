@@ -243,16 +243,18 @@ export class Room {
   scheduleTurn(events) {
     const seat = this.game.turn;
     const member = this.members[seat];
-    // Match snappy client animation durations (~420ms toss, ~55ms/step flight, ~220ms kill).
+    // Match client animation durations (~420ms toss + 140ms read pause, ~75ms/step flight, ~260ms kill).
     const hasRoll = events.some((e) => e.type === 'roll');
     const moveSteps = events
       .filter((e) => e.type === 'move')
-      .reduce((sum, e) => sum + Math.max(1, Math.min(10, Math.abs((e.to ?? 0) - (e.from ?? 0)))), 0);
+      .reduce((sum, e) => sum + Math.max(1, Math.min(12, Math.abs((e.to ?? 0) - (e.from ?? 0)))), 0);
     const kills = events.filter((e) => e.type === 'kill').length;
-    const animMs = Math.min(1300, (hasRoll ? 430 : 70) + moveSteps * 55 + kills * 210);
+    const animMs = Math.min(1800, (hasRoll ? 560 : 90) + moveSteps * 75 + kills * 260);
     if (member.isBot || member.autoPlay || member.left) {
       this.deadline = null;
-      this.timer = setTimeout(() => this.autoAct(false), animMs + 90 + randomInt(90));
+      // Natural human-like pause so opponent rolls and piece choices are easy to follow.
+      const thinkMs = 520 + randomInt(360);
+      this.timer = setTimeout(() => this.autoAct(false), animMs + thinkMs);
     } else {
       const ms = this.game.rules.turnSeconds * 1000 + animMs;
       this.deadline = Date.now() + ms;
