@@ -328,3 +328,41 @@ test('audio (07.25.07): Quick 4-piece preset configures 4 unlocked pieces with f
   assert.equal(g.rules.killRequiredForInnerRing, false);
   assert.equal(g.rules.turnSeconds, 12);
 });
+
+test('video (10.32.32): soft pair cannot kill 1 single, kills 2 separated enemy pieces, cannot kill Pakka Double', () => {
+  // 2 moving together soft cannot kill 1 enemy single
+  const g1 = createGame([0, 2]);
+  g1.players[0].hasKilled = true;
+  g1.players[2].hasKilled = true;
+  g1.players[0].pieces = [17, 17, 0, 0];
+  const targetCell = cellFor(0, 19);
+  const idx2 = PATHS[2].findIndex(([r, c]) => r === targetCell[0] && c === targetCell[1]);
+  g1.players[2].pieces = [idx2, 0, 0, 0];
+  const pairSoftOn1 = legalMoves(g1, 0, 4).find((m) => m.kind === 'pair_soft' && m.to === 19);
+  assert.equal(pairSoftOn1.kills, 0, 'pair_soft (2) must NOT kill 1 enemy single');
+  roll(g1, 0, R(4));
+  move(g1, 0, { moveId: pairSoftOn1.id });
+  assert.equal(g1.players[2].pieces[0], idx2, 'enemy single survives pair_soft');
+
+  // 2 moving together soft DOES kill 2 un-fused enemy pieces sharing that square
+  const g2 = createGame([0, 2]);
+  g2.players[0].hasKilled = true;
+  g2.players[2].hasKilled = true;
+  g2.players[0].pieces = [17, 17, 0, 0];
+  g2.players[2].pieces = [idx2, idx2, 0, 0];
+  const pairSoftOn2 = legalMoves(g2, 0, 4).find((m) => m.kind === 'pair_soft' && m.to === 19);
+  assert.equal(pairSoftOn2.kills, 2, 'pair_soft kills 2 separated enemy singles');
+  roll(g2, 0, R(4));
+  move(g2, 0, { moveId: pairSoftOn2.id });
+  assert.deepEqual(g2.players[2].pieces.slice(0, 2), [0, 0]);
+
+  // 2 moving together soft does NOT kill enemy Pakka Double
+  const g3 = createGame([0, 2]);
+  g3.players[0].hasKilled = true;
+  g3.players[2].hasKilled = true;
+  g3.players[0].pieces = [17, 17, 0, 0];
+  g3.players[2].pieces = [idx2, idx2, 0, 0];
+  g3.players[2].pakka = [1, 1, 0, 0];
+  const pairSoftOnPakka = legalMoves(g3, 0, 4).find((m) => m.kind === 'pair_soft' && m.to === 19);
+  assert.equal(pairSoftOnPakka.kills, 0, 'pair_soft cannot kill enemy Pakka Double');
+});

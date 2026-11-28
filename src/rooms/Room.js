@@ -327,11 +327,12 @@ export class Room {
         phase: this.game.phase,
         roll: this.game.roll,
         jail: this.game.jail,
-        moves: this.game.moves.map(({ id, piece, groupPieces, kind, from, to, kills, breaksJail, createsPakka }) => ({
+        moves: this.game.moves.map(({ id, piece, groupPieces, kind, innerAction, from, to, kills, breaksJail, createsPakka }) => ({
           id,
           piece,
           groupPieces,
           kind,
+          innerAction: innerAction ?? null,
           from,
           to,
           kills,

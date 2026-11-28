@@ -105,7 +105,7 @@ export function chooseMove(state, seat) {
   let bestScore = -Infinity;
 
   for (const m of moves) {
-    if (m.kind === 'inner_stay') {
+    if (m.kind === 'inner_stay' || m.innerAction === 'stay') {
       const fromCell = m.from >= 0 ? cellFor(seat, m.from) : null;
       const fromThreat = fromCell ? threatProb(state, seat, fromCell, spec, 1) : 0;
       const score = diff === 'easy' ? Math.random() * 40 : -20 - 150 * (diff === 'medium' ? 0.55 : 1.0) * fromThreat;

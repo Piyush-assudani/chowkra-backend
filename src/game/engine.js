@@ -166,8 +166,12 @@ function isProtectedCell(cell, ghar) {
   return false;
 }
 
-/** Compute enemy captures on `cell` given moving unit size (`1` single, `2` Pakka Double, `3` Pakka Triple). */
-function victimsAt(state, seat, cell, moverSize = 1) {
+function isPakkaMoveKind(kind) {
+  return kind === 'pair_pakka' || kind === 'triple_pakka' || kind === 'pakka_move';
+}
+
+/** Compute enemy captures on `cell` given moving unit size and whether the attacker moves as Pakka (`true`) vs un-fused (`false`). */
+function victimsAt(state, seat, cell, moverSize = 1, moverIsPakka = false) {
   const spec = boardSpec();
   if (isProtectedCell(cell, state.jail)) return [];
   const out = [];
@@ -191,10 +195,15 @@ function victimsAt(state, seat, cell, moverSize = 1) {
     });
 
     const hasEnemyPakka = pakkaGroups.size > 0;
-    if (moverSize === 1) {
-      // Single / un-fused only kills enemy singles, and only if NO friendly Pakka shields them
-      if (!hasEnemyPakka) {
+    if (!moverIsPakka) {
+      // Un-fused attackers cannot kill Pakka groups or singles shielded by a friendly Pakka.
+      if (hasEnemyPakka) continue;
+      if (moverSize === 1) {
         for (const piece of singles) out.push({ seat: s, piece, from: ep.pieces[piece] });
+      } else if (singles.length >= moverSize) {
+        // Soft Pair / Soft Triple (2 or 3 moving un-fused together) never kills fewer pieces (e.g. 2 cannot kill 1 single),
+        // only captures matching un-fused singles (>= moverSize) on that square.
+        for (const piece of singles.slice(0, moverSize)) out.push({ seat: s, piece, from: ep.pieces[piece] });
       }
     } else {
       // Pakka Double kills enemy Pakka Double; Pakka Triple kills enemy Pakka Triple
@@ -224,10 +233,10 @@ export function legalMoves(state, seat, value) {
 
   const pushMove = (mv) => {
     const cell = cellFor(seat, mv.to);
-    const unitSize = mv.kind === 'pair_pakka' || mv.kind === 'triple_pakka' || mv.kind === 'pakka_move'
-      ? mv.groupPieces.length
-      : 1;
-    const kills = mv.innerAction === 'stay' ? 0 : victimsAt(state, seat, cell, unitSize).length;
+    const moverSize = mv.groupPieces.length;
+    const kills = mv.innerAction === 'stay'
+      ? 0
+      : victimsAt(state, seat, cell, moverSize, isPakkaMoveKind(mv.kind)).length;
     moves.push({ id: nextId++, ...mv, kills, cell });
   };
 
@@ -524,13 +533,10 @@ export function move(state, seat, moveArg) {
     events.push({ type: 'jailBroken', seat, piece: mv.piece, key: state.jail.key });
   }
 
-  const unitSize = mv.kind === 'pair_pakka' || mv.kind === 'triple_pakka' || mv.kind === 'pakka_move'
-    ? mv.groupPieces.length
-    : 1;
   const cell = cellFor(seat, mv.to);
 
   if (!isProtectedCell(cell, state.jail)) {
-    const victims = victimsAt(state, seat, cell, unitSize);
+    const victims = victimsAt(state, seat, cell, mv.groupPieces.length, isPakkaMoveKind(mv.kind));
     const back = state.rules.startOnBoard ? 0 : OFF_BOARD;
     const victimSeats = new Set();
     for (const v of victims) {
